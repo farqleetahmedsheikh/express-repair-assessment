@@ -1,0 +1,152 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Call leads";
+}
+
+@section NavRight {
+    <span class="pill pill-muted d-none d-md-inline-flex" title="Configured in appsettings.json → Ai">
+        <i class="bi bi-cpu"></i> Transcription: <strong>@Model.TranscriptionProvider</strong> · LLM: <strong>@Model.LlmProvider</strong>
+    </span>
+    <span id="live-status" class="pill pill-muted" title="Real-time connection (SignalR)">
+        <span class="dot"></span> <span class="label">Connecting…</span>
+    </span>
+}
+
+<header class="page-head">
+    <div>
+        <h1>Call leads</h1>
+        <p>Voicemails from the repair line are transcribed and turned into structured leads automatically.</p>
+    </div>
+</header>
+
+<!-- KPI cards -->
+<section class="row g-3 mb-4">
+    <div class="col-6 col-lg"><div class="kpi"><span class="kpi-icon tone-slate"><i class="bi bi-telephone-inbound"></i></span><div><div class="kpi-value" id="kpi-total">0</div><div class="kpi-label">Total calls</div></div></div></div>
+    <div class="col-6 col-lg"><div class="kpi"><span class="kpi-icon tone-blue"><i class="bi bi-hourglass-split"></i></span><div><div class="kpi-value" id="kpi-processing">0</div><div class="kpi-label">Processing</div></div></div></div>
+    <div class="col-6 col-lg"><div class="kpi"><span class="kpi-icon tone-green"><i class="bi bi-check2-circle"></i></span><div><div class="kpi-value" id="kpi-done">0</div><div class="kpi-label">Leads ready</div></div></div></div>
+    <div class="col-6 col-lg"><div class="kpi"><span class="kpi-icon tone-red"><i class="bi bi-exclamation-octagon"></i></span><div><div class="kpi-value" id="kpi-failed">0</div><div class="kpi-label">Failed</div></div></div></div>
+    <div class="col-12 col-lg"><div class="kpi"><span class="kpi-icon tone-amber"><i class="bi bi-lightning-charge"></i></span><div><div class="kpi-value" id="kpi-high">0</div><div class="kpi-label">High-urgency leads</div></div></div></div>
+</section>
+
+<!-- Simulate panel -->
+<section class="panel mb-4">
+    <div class="panel-head">
+        <div>
+            <h2><i class="bi bi-broadcast-pin me-2"></i>Simulate an incoming call</h2>
+            <p>Sends a Twilio-style form POST to <code>/api/calls/recording</code>, the same endpoint the phone provider calls.</p>
+        </div>
+    </div>
+    <div class="panel-body">
+        <div class="row g-2 row-cols-1 row-cols-sm-2 row-cols-xl-5" role="radiogroup" aria-label="Sample recording">
+            @for (var i = 0; i < Model.Samples.Count; i++)
+            {
+                var s = Model.Samples[i];
+                var (outcomeClass, outcomeIcon, outcomeText) = s.Outcome switch
+                {
+                    SampleOutcome.Done => ("tone-green", "bi-check2", "Done"),
+                    SampleOutcome.FailsThenRecovers => ("tone-amber", "bi-arrow-repeat", "Fails, then retry"),
+                    _ => ("tone-red", "bi-x-lg", "Fails")
+                };
+                <div class="col">
+                    <input type="radio" class="btn-check" name="sample" id="sample-@s.Key" value="@s.Key"
+                           data-from="@s.From" data-duration="@s.DurationSeconds" @(i == 0 ? "checked" : "") />
+                    <label class="sample" for="sample-@s.Key">
+                        <span class="sample-top">
+                            <span class="sample-title">@s.Title</span>
+                            <i class="bi bi-check-circle-fill sample-check"></i>
+                        </span>
+                        <span class="sample-quote">“@s.Transcript”</span>
+                        <span class="sample-foot">
+                            <span class="tag @outcomeClass"><i class="bi @outcomeIcon"></i> @outcomeText</span>
+                            <span class="text-muted small">@s.OutcomeNote</span>
+                        </span>
+                    </label>
+                </div>
+            }
+        </div>
+    </div>
+    <div class="panel-foot">
+        <button id="simulate-btn" class="btn btn-brand">
+            <i class="bi bi-telephone-inbound-fill me-2"></i>Simulate incoming call
+        </button>
+        <div id="webhook-log" class="webhook-log" hidden></div>
+    </div>
+</section>
+
+<!-- Leads table -->
+<section class="panel">
+    <div class="panel-head table-toolbar">
+        <div class="status-tabs" role="tablist" id="status-tabs">
+            <button class="active" data-status="">All <span class="count" data-count="all">0</span></button>
+            <button data-status="Processing">Processing <span class="count" data-count="processing">0</span></button>
+            <button data-status="Done">Done <span class="count" data-count="done">0</span></button>
+            <button data-status="Failed">Failed <span class="count" data-count="failed">0</span></button>
+        </div>
+        <div class="d-flex gap-2 align-items-center ms-auto table-controls">
+            <div id="page-sizes" class="page-sizes" role="group" aria-label="Rows per page">
+                <button type="button" class="page-size-btn active" data-page-size="10" aria-pressed="true" aria-label="10 rows per page">10</button>
+                <button type="button" class="page-size-btn" data-page-size="50" aria-pressed="false" aria-label="50 rows per page">50</button>
+                <button type="button" class="page-size-btn" data-page-size="100" aria-pressed="false" aria-label="100 rows per page">100</button>
+            </div>
+            <div class="search">
+                <i class="bi bi-search"></i>
+                <input id="search" type="search" class="form-control" placeholder="Search name, phone, brand, problem…" autocomplete="off" />
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive table-scroll" id="calls-scroll" role="region" aria-label="Call leads table" tabindex="0">
+        <table class="table leads-table align-middle mb-0">
+            <thead>
+                <tr>
+                    @foreach (var column in new[] { "Date", "Phone", "Customer", "Appliance", "Brand", "Problem", "Urgency", "Status", "Received" })
+                    {
+                        <th scope="col" aria-sort="@(column == "Date" ? "descending" : "none")">
+                            <button type="button" class="column-sort" data-sort="@column.ToLowerInvariant()" aria-label="Sort by @column">
+                                @column <i class="bi @(column == "Date" ? "bi-arrow-down" : "bi-arrow-down-up")" aria-hidden="true"></i>
+                            </button>
+                        </th>
+                    }
+                    <th class="text-end"></th>
+                </tr>
+            </thead>
+            <tbody id="calls-body">
+                <tr><td colspan="10" class="text-center text-muted py-5"><span class="spinner-border spinner-border-sm me-2"></span>Loading calls…</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="panel-foot table-foot">
+        <div class="d-flex align-items-center gap-2 text-muted small">
+            <span id="range-label">—</span>
+        </div>
+        <nav aria-label="Calls pagination">
+            <ul class="pagination pagination-sm mb-0" id="pagination"></ul>
+        </nav>
+    </div>
+</section>
+
+<dialog id="call-modal" class="call-modal" aria-labelledby="call-modal-title">
+    <header class="call-modal-header">
+        <div class="call-modal-heading"><span class="call-modal-icon"><i class="bi bi-telephone-inbound" aria-hidden="true"></i></span><div><span class="call-modal-eyebrow">EXPRESS REPAIR · CUSTOMER CARE</span><h2 id="call-modal-title">Call details</h2></div></div>
+        <button type="button" class="modal-close-icon" data-close-call aria-label="Close call details" autofocus><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+    </header>
+    <div class="call-modal-body">
+        <p id="call-modal-warning" class="call-modal-warning" role="status" hidden></p>
+        <div id="call-modal-content"></div>
+    </div>
+    <footer class="call-modal-footer">
+        <button type="button" class="btn modal-secondary" data-close-call>Close</button>
+        <div class="call-modal-actions">
+            <button type="button" id="modal-retry" class="btn modal-secondary" hidden><i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Retry processing</button>
+            <a id="modal-call" class="btn btn-brand" hidden><i class="bi bi-telephone me-2" aria-hidden="true"></i>Call customer</a>
+        </div>
+    </footer>
+</dialog>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toasts"></div>
+
+@section Scripts {
+    <script src="~/js/leads.js" asp-append-version="true"></script>
+}

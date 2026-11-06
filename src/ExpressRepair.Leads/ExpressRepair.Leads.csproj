@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ExpressRepair.Leads</RootNamespace>
+    <!-- Keys live in user-secrets (outside the repo), never in appsettings.json. -->
+    <UserSecretsId>express-repair-leads-screening</UserSecretsId>
+    <!-- Runs on .NET 8; if only a newer runtime is installed, roll forward to it instead of failing. -->
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.33" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="8.10.0" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,25 @@
+# Build output
+bin/
+obj/
+TestResults/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Local database (created on first run)
+*.db
+*.db-shm
+*.db-wal
+
+# Local-only config / secrets — API keys go in user-secrets or env vars, never in git
+appsettings.Local.json
+appsettings.*.Local.json
+.env
+
+# Earlier prototype kept locally for reference / local tooling
+.previous-attempt/
+.claude/
